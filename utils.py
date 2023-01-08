@@ -1,4 +1,3 @@
-from collections import deque
 import queue
 
 def topological_sort(keys, hg):
@@ -26,3 +25,15 @@ def topological_sort(keys, hg):
     if visited_count != len(keys):
         print("Cycle detected!")
     return sorted
+
+def dfs(src, dst, hg, path, seen, sm):
+    if src == dst:
+        for h in path:
+            seen[hg[h].pk] = True
+        if sum(1 for v in seen.values()) > sm:
+            return
+    else:
+        for p in hg[src].parents:
+            path.append(p)
+            dfs(p, dst, hg, path, seen, sm)
+            path.pop()
