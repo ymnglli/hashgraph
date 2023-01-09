@@ -6,7 +6,7 @@ from nacl.exceptions import BadSignatureError
 from pickle import dumps, loads
 from time import time
 from termcolor import colored
-from utils import topological_sort, dfs
+from utils import topological_sort, bfs, dfs
 import random
 
 N = 4
@@ -24,7 +24,11 @@ class Node:
         self.head = None
         # round -> {pk -> event hash}
         self.witnesses = defaultdict(dict)
-        self.famous = defaultdict(lambda: False)
+        # hash -> famous
+        self.famous = {}
+        # hash -> {hash -> bool}
+        # the key event stores its vote for another event
+        self.votes = defaultdict(dict)
         # hash -> round
         self.rounds = {}
 
@@ -72,7 +76,8 @@ class Node:
         hash, event = self.create_event([], (self.head, remote_head))
         self.add_event(event, hash)
         self.divide_rounds(unknown_events + [hash])
-        #self.decide_fame()
+        self.decide_fame()
+        self.find_order()
 
     def divide_rounds(self, events):
         for h in events:
@@ -91,6 +96,61 @@ class Node:
             if p == () or self.rounds[h] > self.rounds[p[0]]:
                 self.witnesses[self.rounds[h]][self.hg[h].pk] = h
     
+    def decide_fame(self):
+        def get_strongly_seeable(voter, round):
+            s = set()
+            for w in self.witnesses[round].values():
+                if self.strongly_see(voter, w):
+                    s.add(w)
+            return s
+
+        def get_majority_vote(voters, w):
+            votes = [0, 0]
+            for v in voters:
+                if w not in self.votes[v]:
+                    continue
+                if self.votes[v][w] == True:
+                    votes[0] += 1
+                else:
+                    votes[1] += 1
+            if votes[0] >= votes[1]:
+                return True, votes[0]
+            return False, votes[1]
+
+        max_round = max(self.witnesses)
+        for r in range(1, max_round+1):
+            undecided = set(self.witnesses[r].values() - self.famous.keys())
+            for w in undecided:
+                voters = []
+                for vr in range(r+1, max_round+1):
+                    voters += list(self.witnesses[vr].values() - self.famous.keys())
+                for voter in voters:
+                    d = self.rounds[voter] - r
+                    s = get_strongly_seeable(voter, self.rounds[voter]-1)
+                    v, t = get_majority_vote(s, w)
+                    if d == 1:
+                        self.votes[voter][w] = bfs(voter, w, self.hg)
+                    else:
+                        if d % C > 0:
+                            if t > (2 * N / 3):
+                                self.famous[w] = v
+                                self.votes[voter][w] = v
+                                break
+                            else:
+                                self.votes[voter][w] = v
+                        else:
+                            if t > (2 * N / 3):
+                                self.votes[voter][w] = v
+                            else:
+                                # coin round
+                                print("stub")
+                                #signature = self.hg[voter].signature
+                                #num_bits = signature.bit_length()
+                                #self.votes[voter][w] = bool(signature[num_bits / 2])
+    # stub
+    def find_order(self):
+        return
+    
     def strongly_see(self, event, witness):
         seen = defaultdict(lambda:False)
         path = [event]
@@ -98,10 +158,6 @@ class Node:
         if sum(1 for v in seen.values()) > 2 * N / 3:
             return True
         return False
-    
-    # stub
-    def decide_fame(self):
-        print("")
 
 def main():
     signing_keys = [SigningKey.generate() for n in range(N)]
@@ -116,7 +172,7 @@ def main():
         n.rounds[hash] = 1
         n.witnesses[1][n.pk] = hash
     
-    for i in range(40):
+    for i in range(30):
         choice = random.randint(0, 3)
         nodes[choice].push()
 

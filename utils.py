@@ -37,3 +37,18 @@ def dfs(src, dst, hg, path, seen, sm):
             path.append(p)
             dfs(p, dst, hg, path, seen, sm)
             path.pop()
+
+def bfs(src, dst, hg):
+    visited = set()
+    q = queue.Queue()
+    q.put(src)
+    visited.add(src)
+    while not q.empty():
+        v = q.get()
+        for p in hg[v].parents:
+            if p == dst:
+                return True
+            if p not in visited:
+                q.put(p)
+                visited.add(p)
+    return False
