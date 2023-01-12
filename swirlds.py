@@ -8,6 +8,7 @@ from time import time
 from termcolor import colored
 from utils import topological_sort, bfs, dfs
 import random
+import os
 
 N = 4
 C = 10
@@ -24,10 +25,9 @@ class Node:
         self.head = None
         # round -> {pk -> event hash}
         self.witnesses = defaultdict(dict)
-        # hash -> famous
+        # hash -> bool
         self.famous = {}
         # hash -> {hash -> bool}
-        # the key event stores its vote for another event
         self.votes = defaultdict(dict)
         # hash -> round
         self.rounds = {}
@@ -60,12 +60,9 @@ class Node:
         if event.pk == self.pk:
             self.head = hash
 
-    def push(self):
-        choices = [pk for pk in self.remote_sync.keys() if pk != self.pk]
-        assert len(choices) > 0
-        remote_pk = random.choice(choices)
+    def push(self, remote_pk):
         data = self.sk.sign(dumps((self.head, self.hg)))
-        self.remote_sync[remote_pk](self.pk, data)
+        return self.remote_sync[remote_pk](self.pk, data)
 
     def pull(self, remote_pk, data):
         verified = remote_pk.verify(data)
@@ -75,9 +72,7 @@ class Node:
             self.add_event(remote_hg[h], h)
         hash, event = self.create_event([], (self.head, remote_head))
         self.add_event(event, hash)
-        self.divide_rounds(unknown_events + [hash])
-        self.decide_fame()
-        self.find_order()
+        return hash, event, unknown_events + [hash], self
 
     def divide_rounds(self, events):
         for h in events:
@@ -85,11 +80,11 @@ class Node:
             r = 1 if p == () else max(self.rounds[p[0]], self.rounds[p[1]])
             num_strongly_seen = 0
             for w in self.witnesses[r].values():
-                if num_strongly_seen > 2 * N / 3:
+                if num_strongly_seen > (2 * N / 3):
                     break
                 if self.strongly_see(h, w):
                     num_strongly_seen += 1
-            if num_strongly_seen > 2 * N / 3:
+            if num_strongly_seen > (2 * N / 3):
                 self.rounds[h] = r + 1
             else:
                 self.rounds[h] = r
@@ -123,7 +118,7 @@ class Node:
             for w in undecided:
                 voters = []
                 for vr in range(r+1, max_round+1):
-                    voters += list(self.witnesses[vr].values() - self.famous.keys())
+                    voters += list(self.witnesses[vr].values())
                 for voter in voters:
                     d = self.rounds[voter] - r
                     s = get_strongly_seeable(voter, self.rounds[voter]-1)
@@ -151,6 +146,7 @@ class Node:
     def find_order(self):
         return
     
+    # TODO check for forking
     def strongly_see(self, event, witness):
         seen = defaultdict(lambda:False)
         path = [event]
@@ -158,6 +154,15 @@ class Node:
         if sum(1 for v in seen.values()) > 2 * N / 3:
             return True
         return False
+    
+    def loop(self):
+        choices = [pk for pk in self.remote_sync.keys() if pk != self.pk]
+        assert len(choices) > 0
+        remote_pk = random.choice(choices)
+        h, e, todo, n = self.push(remote_pk)
+        n.divide_rounds(todo)
+        n.decide_fame()
+        n.find_order()
 
 def main():
     signing_keys = [SigningKey.generate() for n in range(N)]
@@ -172,8 +177,7 @@ def main():
         n.rounds[hash] = 1
         n.witnesses[1][n.pk] = hash
     
-    for i in range(30):
-        choice = random.randint(0, 3)
-        nodes[choice].push()
+    while 1:
+        for n in nodes: n.loop()
 
-main()
+#main()
